@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:document_scanner_poc/document_scanner.dart';
 import 'package:document_scanner_poc/rectangle_painter.dart';
@@ -15,7 +15,6 @@ class DocumentScanPage extends StatefulWidget {
 class _DocumentScanPageState extends State<DocumentScanPage> {
   final _scanner = DocumentScanner();
 
-  File? file;
   Size _imageNativeSize = Size(1, 1);
 
   Future<void> _requestCameraPermission() async {
@@ -26,26 +25,11 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
     return await _scanner.getTextureId();
   }
 
-  void _onGetDocument() {
-    _scanner.subscribeDocumentStream();
-
-    _scanner.getDocumentStream().listen((event) async {
-      final file = File(
-        '${Directory.systemTemp.path}/ocr-${DateTime.now().millisecondsSinceEpoch}.jpg',
-      );
-      await file.writeAsBytes(event);
-
-      setState(() {
-        this.file = file;
-      });
-    });
-  }
-
   @override
   void initState() {
     super.initState();
     _requestCameraPermission();
-    _scanner.subscribeVerticesStream();
+    _scanner.documentScannerHandler();
   }
 
   @override
@@ -128,18 +112,32 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                   Positioned(
                     bottom: 60,
                     right: 20,
-                    child:
-                        file == null
-                            ? SizedBox(
-                              height: 120,
-                              width: 80,
-                              child: Container(color: Colors.white24),
-                            )
-                            : SizedBox(
-                              height: 120,
-                              width: 80,
-                              child: Image.file(file!),
-                            ),
+                    child: SizedBox(
+                      height: 120,
+                      width: 80,
+                      child: StreamBuilder<Uint8List>(
+                        stream: _scanner.getDocumentStream(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                            debugPrint(
+                              'Stream de imagem sem dados ou com dados vazios.',
+                            );
+                            return Container(color: Colors.white24);
+                          }
+
+                          try {
+                            return Image.memory(snapshot.data!);
+                          } catch (e) {
+                            debugPrint(
+                              'Erro ao carregar a imagem da memória: $e',
+                            );
+                            return Container(
+                              color: Colors.red,
+                            ); // Placeholder de erro
+                          }
+                        },
+                      ),
+                    ),
                   ),
                 ],
               );

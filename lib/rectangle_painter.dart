@@ -18,7 +18,7 @@ class RectanglePainter extends CustomPainter {
 
     final strokePaint = Paint()
       ..color = Colors.blue
-      ..strokeWidth = 4.0
+      ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
 
     final path = Path();

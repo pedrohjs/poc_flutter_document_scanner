@@ -96,6 +96,15 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
             self.registry.textureFrameAvailable(self.textureId)
         }
     }
+    
+    func toggleFlash(flashLight: Bool) {
+        guard let device = videoCaptureDevice, device.hasTorch else { return }
+        do {
+            try device.lockForConfiguration()
+            device.torchMode = flashLight ? .on : .off
+            device.unlockForConfiguration()
+        } catch { print(error.localizedDescription) }
+    }
 
     func copyPixelBuffer() -> Unmanaged<CVPixelBuffer>? {
         guard let buffer = pixelBuffer else { return nil }
@@ -161,12 +170,11 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
 
             if documentObservation.confidence > minConfidence {
                 self.sendRectangleVertices(documentObservation, pixelBuffer: pixelBuffer)
+                self.processAndSendDocument(documentObservation, pixelBuffer: pixelBuffer)
             } else {
                 print("Documento detectado com baixa confiança: \(documentObservation.confidence)")
                 self.sendRectangleVertices(nil, pixelBuffer: pixelBuffer)
             }
-
-//            self.processAndSendDocument(documentObservation, pixelBuffer: pixelBuffer)
         }
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
@@ -213,10 +221,9 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
                  let imageData = image.jpegData(compressionQuality: 0.9) else { return }
 
         // Envia apenas a imagem recortada
-        commandChannel.invokeMethod("onDocumentCropped", arguments: FlutterStandardTypedData(bytes: imageData))
+        commandChannel.invokeMethod("onDocumentImageCaptured", arguments: FlutterStandardTypedData(bytes: imageData))
 
     }
-
     
 
     // MARK: - Utils
@@ -234,11 +241,11 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     private func createWarpedPixelBuffer(for observation: VNRectangleObservation, from pixelBuffer: CVPixelBuffer) -> CVPixelBuffer? {
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let imageSize = ciImage.extent.size
-
-        let topLeft = CGPoint(x: observation.topLeft.x * imageSize.width, y: (1 - observation.topLeft.y) * imageSize.height)
-        let topRight = CGPoint(x: observation.topRight.x * imageSize.width, y: (1 - observation.topRight.y) * imageSize.height)
-        let bottomLeft = CGPoint(x: observation.bottomLeft.x * imageSize.width, y: (1 - observation.bottomLeft.y) * imageSize.height)
-        let bottomRight = CGPoint(x: observation.bottomRight.x * imageSize.width, y: (1 - observation.bottomRight.y) * imageSize.height)
+        
+        let topLeft = CGPoint(x: observation.topLeft.x * imageSize.width, y: observation.topLeft.y * imageSize.height)
+        let topRight = CGPoint(x: observation.topRight.x * imageSize.width, y: observation.topRight.y * imageSize.height)
+        let bottomLeft = CGPoint(x: observation.bottomLeft.x * imageSize.width, y: observation.bottomLeft.y * imageSize.height)
+        let bottomRight = CGPoint(x: observation.bottomRight.x * imageSize.width, y: observation.bottomRight.y * imageSize.height)
 
         guard let correctionFilter = CIFilter(name: "CIPerspectiveCorrection") else { return nil }
         correctionFilter.setValue(ciImage, forKey: kCIInputImageKey)
@@ -272,15 +279,6 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         case .portraitUpsideDown: return .portraitUpsideDown
         default: return .portrait
         }
-    }
-
-    func toggleFlash(flashLight: Bool) {
-        guard let device = videoCaptureDevice, device.hasTorch else { return }
-        do {
-            try device.lockForConfiguration()
-            device.torchMode = flashLight ? .on : .off
-            device.unlockForConfiguration()
-        } catch { print(error.localizedDescription) }
     }
 
     @available(iOS 13.0, *)
