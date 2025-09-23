@@ -5,26 +5,21 @@ import 'package:flutter/services.dart';
 class DocumentScanner {
   final channel = const MethodChannel('document_scanner');
 
-  Future<int?> getTextureId() async {
-    return await channel.invokeMethod('startScan');
-  }
+  Future<int?> getTextureId() async => await channel.invokeMethod('startScan');
 
-  void manualCapture() {
-    channel.invokeMethod('manualCapture');
-  }
+  void manualCapture() => channel.invokeMethod('manualCapture');
+
+  void toggleFlash(bool active) => channel.invokeMethod('toggleFlash', active);
 
   StreamController<Uint8List> documentStreamController =
       StreamController<Uint8List>();
   StreamController<Map<dynamic, dynamic>> verticesStreamController =
       StreamController<Map<dynamic, dynamic>>();
 
-  Stream<Uint8List> getDocumentStream() {
-    return documentStreamController.stream;
-  }
+  Stream<Uint8List> getDocumentStream() => documentStreamController.stream;
 
-  Stream<Map<dynamic, dynamic>> getVerticesStream() {
-    return verticesStreamController.stream;
-  }
+  Stream<Map<dynamic, dynamic>> getVerticesStream() =>
+      verticesStreamController.stream;
 
   void documentScannerHandler() {
     channel.setMethodCallHandler((handler) async {

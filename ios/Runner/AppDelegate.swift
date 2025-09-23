@@ -35,6 +35,10 @@ import UIKit
             case "manualCapture":
                 self?.documentScanner?.manualCapture()
                 result(nil)
+                
+            case "toggleFlash":
+                self?.documentScanner?.toggleFlash(flashLight: call.arguments as! Bool)
+                result(nil)
             default: result(FlutterMethodNotImplemented)
             }
         })

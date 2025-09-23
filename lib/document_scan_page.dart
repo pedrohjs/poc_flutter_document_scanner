@@ -16,6 +16,7 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
   final _scanner = DocumentScanner();
 
   Size _imageNativeSize = Size(1, 1);
+  bool _flashActive = false;
 
   Future<void> _requestCameraPermission() async {
     await Permission.camera.request();
@@ -36,7 +37,22 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
   Widget build(BuildContext context) {
     return MaterialApp(
       home: Scaffold(
-        appBar: AppBar(title: const Text('Document Scanner POC')),
+        appBar: AppBar(
+          title: const Text('Document Scanner POC'),
+          centerTitle: false,
+          actions: [
+            IconButton(
+              onPressed: () {
+                  _flashActive = !_flashActive;
+                _scanner.toggleFlash(_flashActive);
+              },
+              icon: Icon(
+                Icons.flash_on,
+                color: Colors.black,
+              ),
+            ),
+          ],
+        ),
         body: FutureBuilder<int?>(
           future: getTextureId(),
           builder: (_, snapshot) {
@@ -110,7 +126,7 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                     },
                   ),
                   Positioned(
-                    bottom: 0,
+                    bottom: 10,
                     right: 20,
                     child: SizedBox(
                       height: 120,
