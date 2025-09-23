@@ -32,6 +32,9 @@ import UIKit
                         result(textureId)
                     }
                 }
+            case "manualCapture":
+                self?.documentScanner?.manualCapture()
+                result(nil)
             default: result(FlutterMethodNotImplemented)
             }
         })

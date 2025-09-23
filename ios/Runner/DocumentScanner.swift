@@ -4,8 +4,7 @@ import CoreImage
 import AVFoundation
 import Vision
 
-class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleBufferDelegate {
-
+class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate {
     private var textureId: Int64 = 0
     private var isScanning: Bool = false
     private var isProcessingDocument = false
@@ -18,7 +17,9 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     private let maxEdges: Int = 50
     private var isInAnotherCamera: Bool = false
     private var lastFrameProcessed: TimeInterval = 0
+    private var photoOutput: AVCapturePhotoOutput!
 
+    // MARK: - Initialization
     init(registry: FlutterTextureRegistry, messenger: FlutterBinaryMessenger) {
         self.registry = registry
         self.commandChannel = FlutterMethodChannel(name: "document_scanner", binaryMessenger: messenger)
@@ -64,8 +65,13 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         if captureSession.canAddOutput(videoOutput) {
             captureSession.addOutput(videoOutput)
         }
-    }
 
+        self.photoOutput = AVCapturePhotoOutput()
+        if captureSession.canAddOutput(photoOutput) {
+            captureSession.addOutput(photoOutput)
+        }
+    }
+    
     func stopCamera() {
         isScanning = false
         captureSession?.stopRunning()
@@ -147,6 +153,23 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
             }
         }
     }
+    
+    // MARK: - Manual Capture Method
+    func manualCapture() {
+        let photoSettings = AVCapturePhotoSettings()
+        
+        self.photoOutput.capturePhoto(with: photoSettings, delegate: self)
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        guard let imageData = photo.fileDataRepresentation() else {
+            print("Error getting image data: \(error?.localizedDescription ?? "")")
+            return
+        }
+        
+        // Send the captured image data to Flutter
+        commandChannel.invokeMethod("onManualImageCaptured", arguments: FlutterStandardTypedData(bytes: imageData))
+    }
 
     // MARK: - Document Detection
     private func detectDocument(in pixelBuffer: CVPixelBuffer) {
@@ -217,12 +240,11 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     @available(iOS 15.0, *)
     private func processAndSendDocument(_ observation: VNRectangleObservation, pixelBuffer: CVPixelBuffer) {
         guard let croppedBuffer = createWarpedPixelBuffer(for: observation, from: pixelBuffer),
-                 let image = pixelBufferToUIImage(pixelBuffer: croppedBuffer),
-                 let imageData = image.jpegData(compressionQuality: 0.9) else { return }
+              let image = pixelBufferToUIImage(pixelBuffer: croppedBuffer),
+              let imageData = image.jpegData(compressionQuality: 0.9) else { return }
 
         // Envia apenas a imagem recortada
         commandChannel.invokeMethod("onDocumentImageCaptured", arguments: FlutterStandardTypedData(bytes: imageData))
-
     }
     
 

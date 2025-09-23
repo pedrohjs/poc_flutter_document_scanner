@@ -9,20 +9,14 @@ class DocumentScanner {
     return await channel.invokeMethod('startScan');
   }
 
-  void documentScannerHandler() {
-    channel.setMethodCallHandler((handler) async {
-      if (handler.method == "onDocumentRecognized") {
-        if (handler.arguments is Map<dynamic, dynamic>) {
-          verticesStreamController.add(handler.arguments);
-        }
-      }
-
-      if (handler.method == "onDocumentImageCaptured") {
-        final Uint8List imageData = handler.arguments;
-        documentStreamController.add(imageData);
-      }
-    });
+  void manualCapture() {
+    channel.invokeMethod('manualCapture');
   }
+
+  StreamController<Uint8List> documentStreamController =
+      StreamController<Uint8List>();
+  StreamController<Map<dynamic, dynamic>> verticesStreamController =
+      StreamController<Map<dynamic, dynamic>>();
 
   Stream<Uint8List> getDocumentStream() {
     return documentStreamController.stream;
@@ -32,8 +26,19 @@ class DocumentScanner {
     return verticesStreamController.stream;
   }
 
-  StreamController<Uint8List> documentStreamController =
-      StreamController<Uint8List>();
-  StreamController<Map<dynamic, dynamic>> verticesStreamController =
-      StreamController<Map<dynamic, dynamic>>();
+  void documentScannerHandler() {
+    channel.setMethodCallHandler((handler) async {
+      if (handler.method == "onDocumentRecognized") {
+        if (handler.arguments is Map<dynamic, dynamic>) {
+          verticesStreamController.add(handler.arguments);
+        }
+      }
+
+      if (handler.method == "onDocumentImageCaptured" ||
+          handler.method == "onManualImageCaptured") {
+        final Uint8List imageData = handler.arguments;
+        documentStreamController.add(imageData);
+      }
+    });
+  }
 }

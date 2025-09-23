@@ -110,7 +110,7 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                     },
                   ),
                   Positioned(
-                    bottom: 60,
+                    bottom: 0,
                     right: 20,
                     child: SizedBox(
                       height: 120,
@@ -145,6 +145,24 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
               return const CircularProgressIndicator();
             }
           },
+        ),
+        bottomNavigationBar: Container(
+          padding: const EdgeInsets.symmetric(vertical: 32.0),
+          color: Colors.black,
+          child: SizedBox(
+            height: 56,
+            width: 56,
+            child: ElevatedButton(
+              onPressed: () {
+                _scanner.manualCapture();
+              },
+              style: ElevatedButton.styleFrom(
+                shape: const CircleBorder(),
+                backgroundColor: Colors.white,
+              ),
+              child: Icon(Icons.camera_alt, color: Colors.black),
+            ),
+          ),
         ),
       ),
     );
