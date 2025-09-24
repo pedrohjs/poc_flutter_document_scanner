@@ -28,7 +28,6 @@ class DocumentScannerTexture(
     private val backgroundThread = HandlerThread("DocumentScannerThread").apply { start() }
     private val backgroundHandler = Handler(backgroundThread.looper)
     private var lastProcessTime: Long = 0
-
     private val cameraManager: CameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
     @SuppressLint("MissingPermission")
@@ -60,7 +59,6 @@ class DocumentScannerTexture(
                     }
                 }
 
-
                 override fun onError(camera: CameraDevice, error: Int) {
                     try {
                         camera.close()
@@ -90,15 +88,13 @@ class DocumentScannerTexture(
                 val image = reader.acquireLatestImage()
                 if (image != null && !isProcessingImage) {
                     val currentTime = System.currentTimeMillis()
-                    if (currentTime - lastProcessTime > 1000) { // Processa a cada 1 segundo
+                    if (currentTime - lastProcessTime > 1000) {
                         lastProcessTime = currentTime
                         isProcessingImage = true
 //                        processImage(image)
                     }
                     image.close()
-                } else if (image != null) {
-                    image.close()
-                }
+                } else image?.close()
             }, backgroundHandler)
         }
 

@@ -35,6 +35,8 @@ class MainActivity: FlutterActivity() {
 
                     result.success(textureId)
                 }
+                "manualCapture" -> {}
+                "toggleFlash" -> {}
 //                "stopCamera" -> {
 //                    documentScannerTexture?.stopCamera()
 //                    documentScannerTexture = null
