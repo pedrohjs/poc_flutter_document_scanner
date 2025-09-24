@@ -8,7 +8,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity: FlutterActivity() {
     private lateinit var channel: MethodChannel
     private lateinit var surfaceTexture: SurfaceTexture
-    private var documentScannerTexture: DocumentScannerTexture? = null
+    private var documentScanner: DocumentScanner? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -25,21 +25,21 @@ class MainActivity: FlutterActivity() {
 
                     val textureId = textureEntry.id()
 
-                    documentScannerTexture = DocumentScannerTexture(
+                    documentScanner = DocumentScanner(
                         context = applicationContext,
                         channel = channel,
                         surfaceTexture = surfaceTexture
                     )
 
-                    documentScannerTexture?.startCamera(isFlashLightOn)
+                    documentScanner?.startCamera(isFlashLightOn)
 
                     result.success(textureId)
                 }
                 "manualCapture" -> {}
                 "toggleFlash" -> {}
 //                "stopCamera" -> {
-//                    documentScannerTexture?.stopCamera()
-//                    documentScannerTexture = null
+//                    documentScanner?.stopCamera()
+//                    documentScanner = null
 //                    result.success(null)
 //                }
                 else -> result.notImplemented()
