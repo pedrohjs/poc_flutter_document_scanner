@@ -49,6 +49,7 @@ class DocumentScanner(
     private val mainHandler = Handler(context.mainLooper)
     private var lastImageCaptureTime: Long = 0
     private var isManualCapture = false
+    private var isFlashOn = false
 
     companion object {
         init {
@@ -326,6 +327,7 @@ class DocumentScanner(
                     ).apply {
                         addTarget(previewSurface)
                         addTarget(imageReader!!.surface)
+                        set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
                     }
                 } catch (e: IllegalStateException) {
                     errorWhenProcessingDocument(e, "createCaptureSession 2")
@@ -520,6 +522,28 @@ class DocumentScanner(
 
         } catch (e: CameraAccessException) {
             errorWhenProcessingDocument(e, "takePicture")
+        }
+    }
+
+    fun toggleFlash() {
+        if (captureSession == null || captureRequestBuilder == null) {
+            errorWhenProcessingDocument(Exception("Sessão ou builder nulos."), "toggleFlash")
+            return
+        }
+
+        isFlashOn = !isFlashOn
+
+        try {
+            if (isFlashOn) {
+                captureRequestBuilder!!.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_TORCH)
+            } else {
+                captureRequestBuilder!!.set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
+            }
+
+            captureSession!!.setRepeatingRequest(captureRequestBuilder!!.build(), null, backgroundHandler)
+
+        } catch (e: CameraAccessException) {
+            errorWhenProcessingDocument(e, "toggleFlash")
         }
     }
 

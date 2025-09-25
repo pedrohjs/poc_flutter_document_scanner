@@ -36,7 +36,9 @@ class MainActivity: FlutterActivity() {
                 "manualCapture" -> {
                     documentScanner?.takePicture()
                 }
-                "toggleFlash" -> {}
+                "toggleFlash" -> {
+                    documentScanner?.toggleFlash()
+                }
 //                "stopCamera" -> {
 //                    documentScanner?.stopCamera()
 //                    documentScanner = null
