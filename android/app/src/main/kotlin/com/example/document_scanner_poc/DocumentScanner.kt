@@ -1,6 +1,5 @@
 package com.example.document_scanner_poc
 
-
 import android.os.Build
 import android.util.Size
 import android.os.Handler
@@ -12,7 +11,7 @@ import android.media.ImageReader
 import android.hardware.camera2.*
 import android.graphics.ImageFormat
 import android.annotation.SuppressLint
-import android.graphics.BitmapFactory
+import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
@@ -26,10 +25,14 @@ import org.opencv.core.*
 import org.opencv.core.Mat
 import org.opencv.core.CvType
 import org.opencv.imgproc.Imgproc
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executor
+import kotlin.math.pow
+import kotlin.math.sqrt
+import android.view.WindowManager
 
 class DocumentScanner(
-    context: Context,
+    private val context: Context,
     private val channel: MethodChannel,
     private val surfaceTexture: SurfaceTexture,
 ) {
@@ -48,7 +51,6 @@ class DocumentScanner(
     companion object {
         init {
             if (!OpenCVLoader.initLocal()) {
-                // Handle error, maybe log a message or throw an exception
                 Log.e("OpenCV", "OpenCV initialization failed.")
             } else {
                 Log.d("OpenCV", "OpenCV initialization successful.")
@@ -123,65 +125,113 @@ class DocumentScanner(
                         lastProcessTime = currentTime
                         isProcessingImage = true
 
-                        // ✅ Etapa 1: COLETE TODAS AS INFORMAÇÕES NECESSÁRIAS AQUI.
-                        //    Você já fez isso para imageWidth e imageHeight, mas precisa
-                        //    também para as dimensões de preview que você usa dentro do post().
+                        // ETAPA 1: Processamento em tons de cinza (para a detecção)
                         val imageWidth = image.width
                         val imageHeight = image.height
 
-                        val originalMat = convertImageToMat(image)
-                        val rotatedMat = Mat()
-                        Core.rotate(originalMat, rotatedMat, Core.ROTATE_90_CLOCKWISE)
-                        val documentCorners = findDocumentContour(rotatedMat)
+                        // Converte a imagem YUV para uma Mat em tons de cinza
+                        val originalGrayMat = convertImageToMat(image)
 
-                        // ✅ Etapa 2: FECHE A IMAGEM IMEDIATAMENTE APÓS COLETAR OS DADOS.
-                        image.close()
+                        // Rotaciona a Mat para a orientação do retrato
+                        val rotatedGrayMat = Mat()
+                        Core.rotate(originalGrayMat, rotatedGrayMat, Core.ROTATE_90_CLOCKWISE)
 
-                        // ✅ Etapa 3: Libere os objetos Mat.
-                        originalMat.release()
+                        // Libera o Mat original em tons de cinza
+                        originalGrayMat.release()
 
-                        // É crucial não liberar rotatedMat aqui se você precisar de suas dimensões
-                        // no mainHandler.post. Passe-as como variáveis também.
-                        val rotatedImageWidth = rotatedMat.cols()
-                        val rotatedImageHeight = rotatedMat.rows()
-                        rotatedMat.release()
+                        // Encontra os vértices do documento na Mat rotacionada em tons de cinza
+                        val documentCorners = findDocumentContour(rotatedGrayMat)
 
-                        // ✅ Etapa 4: Envie a tarefa para a thread principal,
-                        //    passando APENAS as variáveis que você já coletou.
-                        mainHandler.post {
-                            if (documentCorners != null) {
-                                val points = documentCorners.toArray().toList()
-                                val sortedPoints = sortPoints(points)
+                        // ETAPA 2: Prepara os dados (vértices e imagem final) na thread de background
+                        val verticesMap: Map<String, Any>
+                        var imageBytes: ByteArray? = null
 
-                                // A função de mapeamento agora usa as variáveis coletadas
-                                // e não precisa mais acessar o objeto 'image' ou 'rotatedMat'.
-                                fun mapToPreviewCoordinates(point: org.opencv.core.Point): Map<String, Int> {
-                                    val xInPreview = (point.x / rotatedImageWidth) * imageWidth // Use a variável 'imageWidth'
-                                    val yInPreview = (point.y / rotatedImageHeight) * imageHeight // Use a variável 'imageHeight'
-                                    return mapOf("x" to xInPreview.toInt(), "y" to yInPreview.toInt())
-                                }
+                        if (documentCorners != null) {
+                            // Lógica para obter os vértices do contorno
+                            val points = documentCorners.toArray().toList()
+                            val sortedPoints = sortPoints(points)
 
-                                val topLeft = mapToPreviewCoordinates(sortedPoints[0])
-                                val topRight = mapToPreviewCoordinates(sortedPoints[1])
-                                val bottomRight = mapToPreviewCoordinates(sortedPoints[2])
-                                val bottomLeft = mapToPreviewCoordinates(sortedPoints[3])
+                            val rotatedImageWidth = rotatedGrayMat.cols()
+                            val rotatedImageHeight = rotatedGrayMat.rows()
 
-                                val vertices = mapOf(
-                                    "topLeft" to topLeft,
-                                    "topRight" to topRight,
-                                    "bottomRight" to bottomRight,
-                                    "bottomLeft" to bottomLeft,
-                                    "imageNativeWidth" to imageWidth,
-                                    "imageNativeHeight" to imageHeight
-                                )
-
-                                channel.invokeMethod("onDocumentRecognized", vertices)
-                            } else {
-                                val vertices = mapOf("vertices" to emptyList<Map<String, Int>>())
-                                channel.invokeMethod("onDocumentRecognized", vertices)
+                            fun mapToPreviewCoordinates(point: org.opencv.core.Point): Map<String, Int> {
+                                val xInPreview = (point.x / rotatedImageWidth) * imageWidth
+                                val yInPreview = (point.y / rotatedImageHeight) * imageHeight
+                                return mapOf("x" to xInPreview.toInt(), "y" to yInPreview.toInt())
                             }
 
-                            documentCorners?.release()
+                            val topLeft = mapToPreviewCoordinates(sortedPoints[0])
+                            val topRight = mapToPreviewCoordinates(sortedPoints[1])
+                            val bottomRight = mapToPreviewCoordinates(sortedPoints[2])
+                            val bottomLeft = mapToPreviewCoordinates(sortedPoints[3])
+
+                            verticesMap = mapOf(
+                                "topLeft" to topLeft,
+                                "topRight" to topRight,
+                                "bottomRight" to bottomRight,
+                                "bottomLeft" to bottomLeft,
+                                "imageNativeWidth" to imageWidth,
+                                "imageNativeHeight" to imageHeight
+                            )
+
+                            // ETAPA 3: Processamento da imagem COLORIDA para o warping
+                            val planes = image.planes
+                            val yBuffer = planes[0].buffer
+                            val uBuffer = planes[1].buffer
+                            val vBuffer = planes[2].buffer
+
+                            val ySize = yBuffer.remaining()
+                            val uSize = uBuffer.remaining()
+                            val vSize = vBuffer.remaining()
+
+                            val nv21 = ByteArray(ySize + uSize + vSize)
+                            yBuffer.get(nv21, 0, ySize)
+                            vBuffer.get(nv21, ySize, vSize)
+                            uBuffer.get(nv21, ySize + vSize, uSize)
+
+                            val yuvMat = Mat(image.height + image.height / 2, image.width, CvType.CV_8UC1)
+                            yuvMat.put(0, 0, nv21)
+
+                            val bgrMat = Mat()
+                            // Converte a Mat YUV para BGR
+                            Imgproc.cvtColor(yuvMat, bgrMat, Imgproc.COLOR_YUV2BGR_NV21)
+                            yuvMat.release()
+
+                            val rotatedColorMat = Mat()
+                            Core.rotate(bgrMat, rotatedColorMat, Core.ROTATE_90_CLOCKWISE)
+                            bgrMat.release()
+
+                            // Faça o `warp` na Mat colorida rotacionada
+                            val warpedMat = warpPerspective(rotatedColorMat, documentCorners)
+
+                            // Converte a Mat final para um array de bytes (JPEG)
+                            val bmp = Bitmap.createBitmap(warpedMat.cols(), warpedMat.rows(), Bitmap.Config.ARGB_8888)
+                            Utils.matToBitmap(warpedMat, bmp)
+                            val stream = ByteArrayOutputStream()
+                            bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                            imageBytes = stream.toByteArray()
+
+                            // Libere os recursos temporários
+                            rotatedColorMat.release()
+                            warpedMat.release()
+                            bmp.recycle()
+
+                        } else {
+                            verticesMap = mapOf("vertices" to emptyList<Map<String, Int>>())
+                        }
+
+                        // Libera as Matrizes de tons de cinza e de contorno
+                        rotatedGrayMat.release()
+                        documentCorners?.release()
+                        image.close() // ✅ Feche a imagem no final do processamento
+
+
+                        // ETAPA 4: Enviar os dados para o Flutter
+                        mainHandler.post {
+                            channel.invokeMethod("onDocumentRecognized", verticesMap)
+                            imageBytes?.let {
+                                channel.invokeMethod("onDocumentImageCaptured", it)
+                            }
                             isProcessingImage = false
                         }
                     } else {
@@ -193,6 +243,7 @@ class DocumentScanner(
             }, backgroundHandler)
         }
 
+
         if (!previewSurface.isValid) return
 
         val outputs = listOf(
@@ -202,7 +253,6 @@ class DocumentScanner(
 
         val stateCallback = object : CameraCaptureSession.StateCallback() {
             override fun onConfigured(session: CameraCaptureSession) {
-                // ... sua lógica de onConfigured
                 if (isCameraStopped || cameraDevice == null) {
                     errorWhenProcessingDocument(Exception("CameraDevice nulo."), "createCaptureSession 1")
                     return
@@ -223,9 +273,6 @@ class DocumentScanner(
 
                 try {
                     session.setRepeatingRequest(captureRequestBuilder!!.build(), null, backgroundHandler)
-                    if (!isCameraStopped){
-//                toggleFlash(isFlashLightOn)
-                    }
                 } catch (e: CameraAccessException) {
                     errorWhenProcessingDocument(e, "createCaptureSession 3")
                 } catch (e: IllegalStateException) {
@@ -243,7 +290,7 @@ class DocumentScanner(
         val sessionConfig = SessionConfiguration(
             SessionConfiguration.SESSION_REGULAR,
             outputs,
-            backgroundExecutor, // Use your custom executor
+            backgroundExecutor,
             stateCallback
         )
 
@@ -273,10 +320,8 @@ class DocumentScanner(
         yuvMat.put(0, 0, nv21)
 
         val grayMat = Mat()
-        // The COLOR_YUV2GRAY_NV21 conversion is correct for the YUV_420_888 format from Camera2
         Imgproc.cvtColor(yuvMat, grayMat, Imgproc.COLOR_YUV2GRAY_NV21, 4)
 
-        // IMPORTANT: Release the temporary yuvMat to prevent a memory leak
         yuvMat.release()
         return grayMat
     }
@@ -294,7 +339,6 @@ class DocumentScanner(
             Imgproc.Canny(blurredMat, cannyEdges, 75.0, 200.0)
             Imgproc.findContours(cannyEdges, contours, hierarchy, Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
 
-            // Find the largest contour
             var maxArea = -1.0
             for (contour in contours) {
                 val area = Imgproc.contourArea(contour)
@@ -314,19 +358,15 @@ class DocumentScanner(
                 contour2f.release()
 
                 if (approx.toArray().size == 4) {
-                    // If a 4-sided polygon is found, we return it.
                     largestApprox = approx
                 } else {
-                    // If not, we release the object immediately.
                     approx.release()
                 }
             }
         } finally {
-            // Release all temporary Mat objects
             blurredMat.release()
             cannyEdges.release()
             hierarchy.release()
-            // largestContour is handled by the loop and will be garbage collected
         }
 
         return largestApprox
@@ -344,6 +384,45 @@ class DocumentScanner(
         val bottomRight = bottomPoints[1]
 
         return listOf(topLeft, topRight, bottomRight, bottomLeft)
+    }
+
+    private fun warpPerspective(
+        originalMat: Mat,
+        corners: MatOfPoint2f
+    ): Mat {
+        val points = corners.toArray().toList()
+        val sortedPoints = sortPoints(points)
+
+        val tl = sortedPoints[0]
+        val tr = sortedPoints[1]
+        val br = sortedPoints[2]
+        val bl = sortedPoints[3]
+
+        val widthA = sqrt((br.x - bl.x).pow(2.0) + (br.y - bl.y).pow(2.0))
+        val widthB = sqrt((tr.x - tl.x).pow(2.0) + (tr.y - tl.y).pow(2.0))
+        val maxWidth = widthA.coerceAtLeast(widthB).toInt()
+
+        val heightA = sqrt((tr.x - br.x).pow(2.0) + (tr.y - br.y).pow(2.0))
+        val heightB = sqrt((tl.x - bl.x).pow(2.0) + (tl.y - bl.y).pow(2.0))
+        val maxHeight = heightA.coerceAtLeast(heightB).toInt()
+
+        val dstMat = Mat.zeros(maxHeight, maxWidth, CvType.CV_8UC3)
+
+        val dstPoints = MatOfPoint2f(
+            Point(0.0, 0.0),
+            Point(maxWidth - 1.0, 0.0),
+            Point(maxWidth - 1.0, maxHeight - 1.0),
+            Point(0.0, maxHeight - 1.0)
+        )
+
+        val transformMat = Imgproc.getPerspectiveTransform(corners, dstPoints)
+
+        Imgproc.warpPerspective(originalMat, dstMat, transformMat, Size(maxWidth.toDouble(), maxHeight.toDouble()))
+
+        transformMat.release()
+        dstPoints.release()
+
+        return dstMat
     }
 
     private fun errorWhenProcessingDocument(e: Exception, methodError: String) { /* ... */ }
