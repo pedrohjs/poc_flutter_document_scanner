@@ -47,6 +47,7 @@ class DocumentScanner(
     private var lastProcessTime: Long = 0
     private val cameraManager: CameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private val mainHandler = Handler(context.mainLooper)
+    private var lastImageCaptureTime: Long = 0
 
     companion object {
         init {
@@ -121,6 +122,8 @@ class DocumentScanner(
                 val image = reader.acquireLatestImage()
                 if (image != null && !isProcessingImage) {
                     val currentTime = System.currentTimeMillis()
+
+                    // Check for the 250ms interval for vertex detection
                     if (currentTime - lastProcessTime > 250) {
                         lastProcessTime = currentTime
                         isProcessingImage = true
@@ -135,22 +138,18 @@ class DocumentScanner(
                         // Rotaciona a Mat para a orientação do retrato
                         val rotatedGrayMat = Mat()
                         Core.rotate(originalGrayMat, rotatedGrayMat, Core.ROTATE_90_CLOCKWISE)
-
-                        // Libera o Mat original em tons de cinza
                         originalGrayMat.release()
 
                         // Encontra os vértices do documento na Mat rotacionada em tons de cinza
                         val documentCorners = findDocumentContour(rotatedGrayMat)
 
-                        // ETAPA 2: Prepara os dados (vértices e imagem final) na thread de background
+                        // ETAPA 2: Prepara os dados (vértices e imagem final)
                         val verticesMap: Map<String, Any>
                         var imageBytes: ByteArray? = null
 
                         if (documentCorners != null) {
-                            // Lógica para obter os vértices do contorno
                             val points = documentCorners.toArray().toList()
                             val sortedPoints = sortPoints(points)
-
                             val rotatedImageWidth = rotatedGrayMat.cols()
                             val rotatedImageHeight = rotatedGrayMat.rows()
 
@@ -174,47 +173,51 @@ class DocumentScanner(
                                 "imageNativeHeight" to imageHeight
                             )
 
-                            // ETAPA 3: Processamento da imagem COLORIDA para o warping
-                            val planes = image.planes
-                            val yBuffer = planes[0].buffer
-                            val uBuffer = planes[1].buffer
-                            val vBuffer = planes[2].buffer
+                            // ETAPA 3: Check for the 1000ms interval for image processing
+                            if (currentTime - lastImageCaptureTime > 1000) {
+                                lastImageCaptureTime = currentTime
 
-                            val ySize = yBuffer.remaining()
-                            val uSize = uBuffer.remaining()
-                            val vSize = vBuffer.remaining()
+                                // Processamento da imagem COLORIDA para o warping
+                                val planes = image.planes
+                                val yBuffer = planes[0].buffer
+                                val uBuffer = planes[1].buffer
+                                val vBuffer = planes[2].buffer
 
-                            val nv21 = ByteArray(ySize + uSize + vSize)
-                            yBuffer.get(nv21, 0, ySize)
-                            vBuffer.get(nv21, ySize, vSize)
-                            uBuffer.get(nv21, ySize + vSize, uSize)
+                                val ySize = yBuffer.remaining()
+                                val uSize = uBuffer.remaining()
+                                val vSize = vBuffer.remaining()
 
-                            val yuvMat = Mat(image.height + image.height / 2, image.width, CvType.CV_8UC1)
-                            yuvMat.put(0, 0, nv21)
+                                val nv21 = ByteArray(ySize + uSize + vSize)
+                                yBuffer.get(nv21, 0, ySize)
+                                vBuffer.get(nv21, ySize, vSize)
+                                uBuffer.get(nv21, ySize + vSize, uSize)
 
-                            val bgrMat = Mat()
-                            // Converte a Mat YUV para BGR
-                            Imgproc.cvtColor(yuvMat, bgrMat, Imgproc.COLOR_YUV2BGR_NV21)
-                            yuvMat.release()
+                                val yuvMat = Mat(image.height + image.height / 2, image.width, CvType.CV_8UC1)
+                                yuvMat.put(0, 0, nv21)
 
-                            val rotatedColorMat = Mat()
-                            Core.rotate(bgrMat, rotatedColorMat, Core.ROTATE_90_CLOCKWISE)
-                            bgrMat.release()
+                                val bgrMat = Mat()
+                                Imgproc.cvtColor(yuvMat, bgrMat, Imgproc.COLOR_YUV2BGR_NV21)
+                                yuvMat.release()
 
-                            // Faça o `warp` na Mat colorida rotacionada
-                            val warpedMat = warpPerspective(rotatedColorMat, documentCorners)
+                                val rotatedColorMat = Mat()
+                                Core.rotate(bgrMat, rotatedColorMat, Core.ROTATE_90_CLOCKWISE)
+                                bgrMat.release()
 
-                            // Converte a Mat final para um array de bytes (JPEG)
-                            val bmp = Bitmap.createBitmap(warpedMat.cols(), warpedMat.rows(), Bitmap.Config.ARGB_8888)
-                            Utils.matToBitmap(warpedMat, bmp)
-                            val stream = ByteArrayOutputStream()
-                            bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)
-                            imageBytes = stream.toByteArray()
+                                // Faça o `warp` na Mat colorida rotacionada
+                                val warpedMat = warpPerspective(rotatedColorMat, documentCorners)
 
-                            // Libere os recursos temporários
-                            rotatedColorMat.release()
-                            warpedMat.release()
-                            bmp.recycle()
+                                // Converte a Mat final para um array de bytes (JPEG)
+                                val bmp = Bitmap.createBitmap(warpedMat.cols(), warpedMat.rows(), Bitmap.Config.ARGB_8888)
+                                Utils.matToBitmap(warpedMat, bmp)
+                                val stream = ByteArrayOutputStream()
+                                bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                                imageBytes = stream.toByteArray()
+
+                                // Libere os recursos temporários
+                                rotatedColorMat.release()
+                                warpedMat.release()
+                                bmp.recycle()
+                            }
 
                         } else {
                             verticesMap = mapOf("vertices" to emptyList<Map<String, Int>>())
@@ -223,8 +226,7 @@ class DocumentScanner(
                         // Libera as Matrizes de tons de cinza e de contorno
                         rotatedGrayMat.release()
                         documentCorners?.release()
-                        image.close() // ✅ Feche a imagem no final do processamento
-
+                        image.close()
 
                         // ETAPA 4: Enviar os dados para o Flutter
                         mainHandler.post {
