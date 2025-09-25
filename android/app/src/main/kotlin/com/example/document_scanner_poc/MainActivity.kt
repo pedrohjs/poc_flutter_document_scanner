@@ -33,7 +33,9 @@ class MainActivity: FlutterActivity() {
 
                     result.success(textureId)
                 }
-                "manualCapture" -> {}
+                "manualCapture" -> {
+                    documentScanner?.takePicture()
+                }
                 "toggleFlash" -> {}
 //                "stopCamera" -> {
 //                    documentScanner?.stopCamera()
