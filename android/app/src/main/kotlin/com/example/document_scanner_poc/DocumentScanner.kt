@@ -29,7 +29,7 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.Executor
 import kotlin.math.pow
 import kotlin.math.sqrt
-import android.view.WindowManager
+import androidx.core.graphics.createBitmap
 
 class DocumentScanner(
     private val context: Context,
@@ -60,7 +60,7 @@ class DocumentScanner(
     }
 
     @SuppressLint("MissingPermission")
-    fun startCamera(isFlashLightOn: Boolean) {
+    fun startCamera() {
         isCameraStopped = false
         val cameraId = cameraManager.cameraIdList.firstOrNull { id ->
             val characteristics = cameraManager.getCameraCharacteristics(id)
@@ -78,7 +78,7 @@ class DocumentScanner(
                         return
                     }
                     cameraDevice = camera
-                    createCaptureSession(isFlashLightOn)
+                    createCaptureSession()
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
@@ -107,7 +107,7 @@ class DocumentScanner(
 
     @RequiresApi(Build.VERSION_CODES.P)
     @SuppressLint("MissingPermission")
-    private fun createCaptureSession(isFlashLightOn: Boolean) {
+    private fun createCaptureSession() {
         val previewSize = Size(1280, 720)
         surfaceTexture.setDefaultBufferSize(previewSize.width, previewSize.height)
         val previewSurface = Surface(surfaceTexture)
@@ -207,7 +207,7 @@ class DocumentScanner(
                                 val warpedMat = warpPerspective(rotatedColorMat, documentCorners)
 
                                 // Converte a Mat final para um array de bytes (JPEG)
-                                val bmp = Bitmap.createBitmap(warpedMat.cols(), warpedMat.rows(), Bitmap.Config.ARGB_8888)
+                                val bmp = createBitmap(warpedMat.cols(), warpedMat.rows())
                                 Utils.matToBitmap(warpedMat, bmp)
                                 val stream = ByteArrayOutputStream()
                                 bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)

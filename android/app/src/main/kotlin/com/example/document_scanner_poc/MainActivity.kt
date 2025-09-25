@@ -18,8 +18,6 @@ class MainActivity: FlutterActivity() {
         channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startScan" -> {
-                    val isFlashLightOn = call.argument<Boolean>("isFlashLightOn") ?: false
-
                     val textureEntry = flutterEngine.renderer.createSurfaceTexture()
                     surfaceTexture = textureEntry.surfaceTexture()
 
@@ -31,7 +29,7 @@ class MainActivity: FlutterActivity() {
                         surfaceTexture = surfaceTexture
                     )
 
-                    documentScanner?.startCamera(isFlashLightOn)
+                    documentScanner?.startCamera()
 
                     result.success(textureId)
                 }
