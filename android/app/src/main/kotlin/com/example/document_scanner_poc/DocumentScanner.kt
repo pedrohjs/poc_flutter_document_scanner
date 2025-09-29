@@ -441,17 +441,21 @@ class DocumentScanner(
     }
 
     private fun sortPoints(points: List<Point>): List<Point> {
-        val sortedPoints = points.sortedBy { it.y }
+        // Lista para armazenar os pontos ordenados: [TL, TR, BR, BL]
+        val sorted = Array<Point>(4) { Point(0.0, 0.0) }
 
-        val topPoints = sortedPoints.take(2).sortedBy { it.x }
-        val bottomPoints = sortedPoints.drop(2).sortedBy { it.x }
+        // 1. Encontra TL e BR com base na soma (x + y)
+        val sumSorted = points.sortedBy { it.x + it.y }
+        sorted[0] = sumSorted[0] // TL (menor soma)
+        sorted[2] = sumSorted[3] // BR (maior soma)
 
-        val topLeft = topPoints[0]
-        val topRight = topPoints[1]
-        val bottomLeft = bottomPoints[0]
-        val bottomRight = bottomPoints[1]
+        // 2. Encontra TR e BL com base na diferença (x - y)
+        val diffSorted = points.sortedBy { it.x - it.y }
+        sorted[1] = diffSorted[3] // TR (maior diferença)
+        sorted[3] = diffSorted[0] // BL (menor diferença)
 
-        return listOf(topLeft, topRight, bottomRight, bottomLeft)
+        // Retorna a lista na ordem padrão: [TL, TR, BR, BL]
+        return sorted.toList()
     }
 
     private fun warpPerspective(
@@ -482,21 +486,12 @@ class DocumentScanner(
 
         val dstMat = Mat.zeros(maxHeight, maxWidth, CvType.CV_8UC3)
 
-        val dstPoints = if (maxHeight > maxWidth) {
-            MatOfPoint2f(
-                Point(0.0, 0.0),
-                Point(maxWidth - 1.0, 0.0),
-                Point(maxWidth - 1.0, maxHeight - 1.0),
-                Point(0.0, maxHeight - 1.0)
-            )
-        } else {
-            MatOfPoint2f(
-                Point(0.0, 0.0),
-                Point(maxWidth - 1.0, 0.0),
-                Point(maxWidth - 1.0, maxHeight - 1.0),
-                Point(0.0, maxHeight - 1.0)
-            )
-        }
+        val dstPoints = MatOfPoint2f(
+        Point(0.0, 0.0),
+        Point(maxWidth - 1.0, 0.0),
+        Point(maxWidth - 1.0, maxHeight - 1.0),
+        Point(0.0, maxHeight - 1.0)
+        )
 
         val transformMat = Imgproc.getPerspectiveTransform(corners, dstPoints)
 
