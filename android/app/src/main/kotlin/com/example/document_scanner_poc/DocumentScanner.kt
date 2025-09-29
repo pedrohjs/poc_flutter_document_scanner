@@ -263,12 +263,16 @@ class DocumentScanner(
                                     Core.rotate(bgrMat, rotatedColorMat, Core.ROTATE_90_CLOCKWISE)
                                     bgrMat.release()
 
-                                    // Faça o `warp` na Mat colorida rotacionada
+                                    // Faz o `warp` na Mat colorida rotacionada
                                     val warpedMat = warpPerspective(rotatedColorMat, documentCorners)
 
+                                    // Faz o flip horizontal da imagem
+                                    val finalMat = Mat()
+                                    Core.flip(warpedMat, finalMat, 1)
+
                                     // Converte a Mat final para um array de bytes (JPEG)
-                                    val bmp = createBitmap(warpedMat.cols(), warpedMat.rows())
-                                    Utils.matToBitmap(warpedMat, bmp)
+                                    val bmp = createBitmap(finalMat.cols(), finalMat.rows())
+                                    Utils.matToBitmap(finalMat, bmp)
                                     val stream = ByteArrayOutputStream()
                                     bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)
                                     imageBytes = stream.toByteArray()
@@ -276,6 +280,7 @@ class DocumentScanner(
                                     // Libere os recursos temporários
                                     rotatedColorMat.release()
                                     warpedMat.release()
+                                    finalMat.release()
                                     bmp.recycle()
                                 }
 
