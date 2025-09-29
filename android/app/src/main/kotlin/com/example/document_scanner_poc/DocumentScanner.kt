@@ -478,20 +478,32 @@ class DocumentScanner(
         val heightB = sqrt((tl.x - bl.x).pow(2.0) + (tl.y - bl.y).pow(2.0))
         var maxHeight = heightA.coerceAtLeast(heightB).toInt()
 
+        var swapped = false
+
         if (maxWidth > maxHeight) {
             val temp = maxWidth
             maxWidth = maxHeight
             maxHeight = temp
+            swapped = true
         }
 
         val dstMat = Mat.zeros(maxHeight, maxWidth, CvType.CV_8UC3)
 
-        val dstPoints = MatOfPoint2f(
-        Point(0.0, 0.0),
-        Point(maxWidth - 1.0, 0.0),
-        Point(maxWidth - 1.0, maxHeight - 1.0),
-        Point(0.0, maxHeight - 1.0)
-        )
+        val dstPoints = if (swapped) {
+            MatOfPoint2f(
+                Point(0.0, maxHeight - 1.0),
+                Point(0.0, 0.0),
+                Point(maxWidth - 1.0, 0.0),
+                Point(maxWidth - 1.0, maxHeight - 1.0)
+            )
+        } else {
+            MatOfPoint2f(
+                Point(0.0, 0.0),
+                Point(maxWidth - 1.0, 0.0),
+                Point(maxWidth - 1.0, maxHeight - 1.0),
+                Point(0.0, maxHeight - 1.0)
+            )
+        }
 
         val transformMat = Imgproc.getPerspectiveTransform(corners, dstPoints)
 
