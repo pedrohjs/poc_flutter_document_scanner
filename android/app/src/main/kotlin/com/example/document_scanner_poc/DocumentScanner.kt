@@ -47,9 +47,11 @@ class DocumentScanner(
     private var lastProcessTime: Long = 0
     private val cameraManager: CameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
     private val mainHandler = Handler(context.mainLooper)
-    private var lastImageCaptureTime: Long = 0
     private var isManualCapture = false
     private var isFlashOn = false
+    private var confirmationStartTime: Long = 0
+    private var confirmedCorners: MatOfPoint2f? = null
+    private val CONFIRMATION_DELAY_MS = 3000L
 
     companion object {
         init {
@@ -212,6 +214,17 @@ class DocumentScanner(
                                 val rotatedImageWidth = rotatedGrayMat.cols()
                                 val rotatedImageHeight = rotatedGrayMat.rows()
 
+                                if (confirmedCorners == null) {
+                                    // Primeiro contorno válido detectado
+                                    confirmationStartTime = currentTime
+                                    confirmedCorners = MatOfPoint2f(documentCorners.clone())
+                                }
+
+                                val timeElapsed = currentTime - confirmationStartTime
+                                // Verifica se o contorno foi estável pelo tempo de confirmação
+                                // e se o contorno atual é estável o suficiente
+                                val isConfirmed = (timeElapsed >= CONFIRMATION_DELAY_MS)
+
                                 fun mapToPreviewCoordinates(point: org.opencv.core.Point): Map<String, Int> {
                                     val xInPreview = (point.x / rotatedImageWidth) * imageWidth
                                     val yInPreview = (point.y / rotatedImageHeight) * imageHeight
@@ -233,8 +246,10 @@ class DocumentScanner(
                                 )
 
                                 // ETAPA 3: Check for the 1000ms interval for image processing
-                                if (currentTime - lastImageCaptureTime > 1000) {
-                                    lastImageCaptureTime = currentTime
+                                if (isConfirmed) {
+                                    confirmationStartTime = 0
+                                    confirmedCorners?.release()
+                                    confirmedCorners = null
 
                                     // Processamento da imagem COLORIDA para o warping
                                     val planes = image.planes
@@ -284,6 +299,10 @@ class DocumentScanner(
                                 }
 
                             } else {
+                                confirmationStartTime = 0
+                                confirmedCorners?.release()
+                                confirmedCorners = null
+
                                 verticesMap = mapOf("vertices" to emptyList<Map<String, Int>>())
                             }
 
