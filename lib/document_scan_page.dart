@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:document_scanner_poc/document_scanner.dart';
+import 'package:document_scanner_poc/document_view_page.dart';
 import 'package:document_scanner_poc/rectangle_painter.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -43,13 +44,10 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
           actions: [
             IconButton(
               onPressed: () {
-                  _flashActive = !_flashActive;
+                _flashActive = !_flashActive;
                 _scanner.toggleFlash(_flashActive);
               },
-              icon: Icon(
-                Icons.flash_on,
-                color: Colors.black,
-              ),
+              icon: Icon(Icons.flash_on, color: Colors.black),
             ),
           ],
         ),
@@ -142,7 +140,19 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                           }
 
                           try {
-                            return Image.memory(snapshot.data!);
+                            return GestureDetector(
+                              onTap:
+                                  () => Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) {
+                                        return DocumentViewPage(
+                                          imageData: snapshot.data!,
+                                        );
+                                      },
+                                    ),
+                                  ),
+                              child: Image.memory(snapshot.data!),
+                            );
                           } catch (e) {
                             debugPrint(
                               'Erro ao carregar a imagem da memória: $e',
