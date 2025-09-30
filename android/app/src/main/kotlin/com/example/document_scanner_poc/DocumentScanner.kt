@@ -107,7 +107,6 @@ class DocumentScanner(
         backgroundHandler.post(command)
     }
 
-    @RequiresApi(Build.VERSION_CODES.P)
     @SuppressLint("MissingPermission")
     private fun createCaptureSession() {
         val previewSize = Size(1280, 720)
@@ -355,15 +354,28 @@ class DocumentScanner(
             }
         }
 
-        val sessionConfig = SessionConfiguration(
-            SessionConfiguration.SESSION_REGULAR,
-            outputs,
-            backgroundExecutor,
-            stateCallback
-        )
+        val surfaces = listOf(previewSurface, imageReader!!.surface)
 
         try {
-            cameraDevice?.createCaptureSession(sessionConfig)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                // Usa SessionConfiguration (API 28+)
+                val outputConfigs = surfaces.map { OutputConfiguration(it) }
+                val sessionConfig = SessionConfiguration(
+                    SessionConfiguration.SESSION_REGULAR,
+                    outputConfigs, // Use as OutputConfigurations
+                    backgroundExecutor,
+                    stateCallback
+                )
+                cameraDevice?.createCaptureSession(sessionConfig)
+            } else {
+                // Usa o método createCaptureSession antigo (API < 28)
+                @Suppress("DEPRECATION")
+                cameraDevice?.createCaptureSession(
+                    surfaces,
+                    stateCallback,
+                    backgroundHandler
+                )
+            }
         } catch (e: CameraAccessException) {
             errorWhenProcessingDocument(e, "createCaptureSession 6")
         }
