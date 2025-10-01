@@ -159,7 +159,7 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                             );
                             return Container(
                               color: Colors.red,
-                            ); // Placeholder de erro
+                            );
                           }
                         },
                       ),

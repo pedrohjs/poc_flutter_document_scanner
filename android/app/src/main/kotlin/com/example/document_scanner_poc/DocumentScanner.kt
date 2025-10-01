@@ -51,7 +51,7 @@ class DocumentScanner(
     private var isFlashOn = false
     private var confirmationStartTime: Long = 0
     private var confirmedCorners: MatOfPoint2f? = null
-    private val CONFIRMATION_DELAY_MS = 3000L
+    private val confirmationDelayMS = 2000L
 
     companion object {
         init {
@@ -129,7 +129,7 @@ class DocumentScanner(
                     isProcessingImage = true
                     isManualCapture = false
 
-                    // Converte a imagem bruta para bytes (JPEG)
+                    // Converte a imagem bruta para bytes (PNG)
                     val planes = image.planes
                     val yBuffer = planes[0].buffer
                     val uBuffer = planes[1].buffer
@@ -156,11 +156,11 @@ class DocumentScanner(
                     Core.rotate(bgrMat, rotatedColorMat, Core.ROTATE_90_CLOCKWISE)
                     bgrMat.release()
 
-                    // Converte a Mat rotacionada para um array de bytes (JPEG)
+                    // Converte a Mat rotacionada para um array de bytes (PNG)
                     val bmp = createBitmap(rotatedColorMat.cols(), rotatedColorMat.rows())
                     Utils.matToBitmap(rotatedColorMat, bmp)
                     val stream = ByteArrayOutputStream()
-                    bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, stream)
                     val imageBytes = stream.toByteArray()
 
                     // Libera os recursos
@@ -223,7 +223,7 @@ class DocumentScanner(
                                 val timeElapsed = currentTime - confirmationStartTime
                                 // Verifica se o contorno foi estável pelo tempo de confirmação
                                 // e se o contorno atual é estável o suficiente
-                                val isConfirmed = (timeElapsed >= CONFIRMATION_DELAY_MS)
+                                val isConfirmed = (timeElapsed >= confirmationDelayMS)
 
                                 fun mapToPreviewCoordinates(point: org.opencv.core.Point): Map<String, Int> {
                                     val xInPreview = (point.x / rotatedImageWidth) * imageWidth
@@ -284,11 +284,11 @@ class DocumentScanner(
                                     val finalMat = Mat()
                                     Core.flip(warpedMat, finalMat, 1)
 
-                                    // Converte a Mat final para um array de bytes (JPEG)
+                                    // Converte a Mat final para um array de bytes (PNG)
                                     val bmp = createBitmap(finalMat.cols(), finalMat.rows())
                                     Utils.matToBitmap(finalMat, bmp)
                                     val stream = ByteArrayOutputStream()
-                                    bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                                    bmp.compress(Bitmap.CompressFormat.PNG, 100, stream)
                                     imageBytes = stream.toByteArray()
 
                                     // Libere os recursos temporários
