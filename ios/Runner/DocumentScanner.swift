@@ -18,6 +18,10 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     private var isInAnotherCamera: Bool = false
     private var lastFrameProcessed: TimeInterval = 0
     private var photoOutput: AVCapturePhotoOutput!
+    private var lastStableObservation: VNRectangleObservation?
+    private var stableObservationStartTime: TimeInterval?
+    private let confirmationDelay: TimeInterval = 2.0 // O tempo de confirmação em segundos (2 segundos)
+    private let stabilityThreshold: CGFloat = 0.01 // Movimento máximo permitido (1% da tela)
 
     // MARK: - Initialization
     init(registry: FlutterTextureRegistry, messenger: FlutterBinaryMessenger) {
@@ -176,6 +180,8 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         guard #available(iOS 15, *) else { return }
         if isProcessingDocument { return }
         isProcessingDocument = true
+        
+        let currentTimestamp = CACurrentMediaTime()
 
         let request = VNDetectDocumentSegmentationRequest { [weak self] request, error in
             guard let self = self else { return }
@@ -192,12 +198,50 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
             let minConfidence: Float = 0.8
 
             if documentObservation.confidence > minConfidence {
-                self.sendRectangleVertices(documentObservation, pixelBuffer: pixelBuffer)
-                self.processAndSendDocument(documentObservation, pixelBuffer: pixelBuffer)
-            } else {
-                print("Documento detectado com baixa confiança: \(documentObservation.confidence)")
-                self.sendRectangleVertices(nil, pixelBuffer: pixelBuffer)
-            }
+                        
+                        // 1. Sempre envia os vértices (para o overlay no Flutter)
+                        self.sendRectangleVertices(documentObservation, pixelBuffer: pixelBuffer)
+
+                        // 2. Verifica a estabilidade do documento (comparado com o quadro anterior)
+                        let isCurrentlyStable = self.isObservationStable(documentObservation)
+
+                        if isCurrentlyStable {
+                            if self.stableObservationStartTime == nil {
+                                // Primeiro quadro estável, inicia o cronômetro
+                                self.stableObservationStartTime = currentTimestamp
+                                print("Iniciando cronômetro de estabilidade.")
+                            }
+                            
+                            let elapsedTime = currentTimestamp - (self.stableObservationStartTime ?? currentTimestamp)
+                            
+                            if elapsedTime >= self.confirmationDelay {
+                                // 3. Estabilidade atingida! Captura a imagem.
+                                print("Estabilidade confirmada após \(elapsedTime) segundos. Capturando documento.")
+                                
+                                // Resetamos o estado imediatamente para não capturar novamente no próximo frame de detecção
+                                self.stableObservationStartTime = nil
+                                self.lastStableObservation = nil
+                                self.processAndSendDocument(documentObservation, pixelBuffer: pixelBuffer)
+                            } else {
+                                // Ainda estável, mas aguardando o tempo
+                                print("Documento estável, aguardando... Faltam \(self.confirmationDelay - elapsedTime)s")
+                            }
+                        } else {
+                            // O documento se moveu ou é a primeira detecção, reseta o cronômetro.
+                            print("Documento se moveu ou é nova detecção. Reiniciando cronômetro.")
+                            self.stableObservationStartTime = nil
+                        }
+                        
+                        // 4. Armazena a observação atual para a verificação de estabilidade do próximo quadro
+                        self.lastStableObservation = documentObservation
+
+                    } else {
+                        // Confiança baixa, reseta o estado de estabilidade e envia vértices nulos
+                        print("Documento detectado com baixa confiança: \(documentObservation.confidence)")
+                        self.lastStableObservation = nil
+                        self.stableObservationStartTime = nil
+                        self.sendRectangleVertices(nil, pixelBuffer: pixelBuffer)
+                    }
         }
 
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, options: [:])
@@ -245,6 +289,27 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
 
         // Envia apenas a imagem recortada
         commandChannel.invokeMethod("onDocumentImageCaptured", arguments: FlutterStandardTypedData(bytes: imageData))
+    }
+    
+    // MARK: - Stability Check
+    private func isObservationStable(_ newObservation: VNRectangleObservation) -> Bool {
+        guard let lastObservation = lastStableObservation else {
+            // Se for a primeira detecção, não podemos compará-la, então consideramos instável por enquanto.
+            return false
+        }
+        
+        func isPointSimilar(_ p1: CGPoint, _ p2: CGPoint) -> Bool {
+            // Verifica se a mudança nas coordenadas normalizadas é menor que o threshold
+            return abs(p1.x - p2.x) < stabilityThreshold && abs(p1.y - p2.y) < stabilityThreshold
+        }
+
+        let topLeftStable = isPointSimilar(newObservation.topLeft, lastObservation.topLeft)
+        let topRightStable = isPointSimilar(newObservation.topRight, lastObservation.topRight)
+        let bottomLeftStable = isPointSimilar(newObservation.bottomLeft, lastObservation.bottomLeft)
+        let bottomRightStable = isPointSimilar(newObservation.bottomRight, lastObservation.bottomRight)
+
+        // O documento é considerado estável se todos os quatro cantos não se moveram significativamente.
+        return topLeftStable && topRightStable && bottomLeftStable && bottomRightStable
     }
     
 
