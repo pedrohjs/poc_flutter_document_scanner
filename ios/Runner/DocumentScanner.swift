@@ -241,7 +241,7 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     private func processAndSendDocument(_ observation: VNRectangleObservation, pixelBuffer: CVPixelBuffer) {
         guard let croppedBuffer = createWarpedPixelBuffer(for: observation, from: pixelBuffer),
               let image = pixelBufferToUIImage(pixelBuffer: croppedBuffer),
-              let imageData = image.jpegData(compressionQuality: 0.9) else { return }
+              let imageData = image.jpegData(compressionQuality: 1.0) else { return }
 
         // Envia apenas a imagem recortada
         commandChannel.invokeMethod("onDocumentImageCaptured", arguments: FlutterStandardTypedData(bytes: imageData))
@@ -277,6 +277,23 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         correctionFilter.setValue(CIVector(cgPoint: bottomRight), forKey: "inputBottomRight")
 
         guard let correctedImage = correctionFilter.outputImage else { return nil }
+        
+        var finalImage = correctedImage
+            
+        // 1. Aumento de Contraste e Brilho
+        if let contrastFilter = CIFilter(name: "CIColorControls") {
+            contrastFilter.setValue(finalImage, forKey: kCIInputImageKey)
+            contrastFilter.setValue(0.7, forKey: kCIInputContrastKey)
+            contrastFilter.setValue(0.2, forKey: kCIInputBrightnessKey)
+            finalImage = contrastFilter.outputImage!
+        }
+        
+        // 2. Aplicação de Nitidez (Sharpness)
+        if let sharpenFilter = CIFilter(name: "CISharpenLuminance") {
+            sharpenFilter.setValue(finalImage, forKey: kCIInputImageKey)
+            sharpenFilter.setValue(0.9, forKey: kCIInputSharpnessKey)
+            finalImage = sharpenFilter.outputImage!
+        }
 
         let context = CIContext(options: nil)
         var newPixelBuffer: CVPixelBuffer?
