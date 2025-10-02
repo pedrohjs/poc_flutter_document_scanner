@@ -145,7 +145,7 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
             }
 
             let currentTime = CACurrentMediaTime()
-            if currentTime - lastFrameProcessed >= 1.0 {
+            if currentTime - lastFrameProcessed >= 0.25 {
                 lastFrameProcessed = currentTime
                 DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                     guard let self = self else { return }
