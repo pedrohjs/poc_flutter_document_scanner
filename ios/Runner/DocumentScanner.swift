@@ -98,12 +98,16 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         isScanning = true
         pixelBuffer = nil
         registry.textureFrameAvailable(textureId)
-        DispatchQueue.main.async { [weak self] in
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self, let session = self.captureSession else { return }
             if !session.isRunning {
                 session.startRunning()
             }
-            self.registry.textureFrameAvailable(self.textureId)
+            
+            DispatchQueue.main.async {
+                self.registry.textureFrameAvailable(self.textureId)
+            }
         }
     }
     
