@@ -494,47 +494,34 @@ class DocumentScanner(
         corners: MatOfPoint2f
     ): Mat {
         val points = corners.toArray().toList()
-        val sortedPoints = sortPoints(points)
+        val sortedPoints = sortPoints(points) // [TL, TR, BR, BL]
 
         val tl = sortedPoints[0]
         val tr = sortedPoints[1]
         val br = sortedPoints[2]
         val bl = sortedPoints[3]
 
+        // 1. Calcula as larguras: lado de baixo (bl->br) e lado de cima (tl->tr)
         val widthA = sqrt((br.x - bl.x).pow(2.0) + (br.y - bl.y).pow(2.0))
         val widthB = sqrt((tr.x - tl.x).pow(2.0) + (tr.y - tl.y).pow(2.0))
-        var maxWidth = widthA.coerceAtLeast(widthB).toInt()
+        val maxWidth = widthA.coerceAtLeast(widthB).toInt()
 
+        // 2. Calcula as alturas: lado direito (tr->br) e lado esquerdo (tl->bl)
         val heightA = sqrt((tr.x - br.x).pow(2.0) + (tr.y - br.y).pow(2.0))
         val heightB = sqrt((tl.x - bl.x).pow(2.0) + (tl.y - bl.y).pow(2.0))
-        var maxHeight = heightA.coerceAtLeast(heightB).toInt()
+        val maxHeight = heightA.coerceAtLeast(heightB).toInt()
 
-        var swapped = false
+        // 3. Define os pontos de destino (sem forçar a orientação retrato/paisagem)
+        // Os pontos de destino refletem a ordem do sortedPoints: [TL, TR, BR, BL]
+        val dstPoints = MatOfPoint2f(
+            Point(0.0, 0.0), // Top-Left
+            Point(maxWidth - 1.0, 0.0), // Top-Right
+            Point(maxWidth - 1.0, maxHeight - 1.0), // Bottom-Right
+            Point(0.0, maxHeight - 1.0) // Bottom-Left
+        )
 
-        if (maxWidth > maxHeight) {
-            val temp = maxWidth
-            maxWidth = maxHeight
-            maxHeight = temp
-            swapped = true
-        }
-
+        // O tamanho de saída é (maxWidth x maxHeight), que respeita a orientação detectada
         val dstMat = Mat.zeros(maxHeight, maxWidth, CvType.CV_8UC3)
-
-        val dstPoints = if (swapped) {
-            MatOfPoint2f(
-                Point(0.0, maxHeight - 1.0),
-                Point(0.0, 0.0),
-                Point(maxWidth - 1.0, 0.0),
-                Point(maxWidth - 1.0, maxHeight - 1.0)
-            )
-        } else {
-            MatOfPoint2f(
-                Point(0.0, 0.0),
-                Point(maxWidth - 1.0, 0.0),
-                Point(maxWidth - 1.0, maxHeight - 1.0),
-                Point(0.0, maxHeight - 1.0)
-            )
-        }
 
         val transformMat = Imgproc.getPerspectiveTransform(corners, dstPoints)
 
