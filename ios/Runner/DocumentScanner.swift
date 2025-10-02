@@ -13,8 +13,6 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     private var captureSession: AVCaptureSession?
     private var commandChannel: FlutterMethodChannel
     private var videoCaptureDevice: AVCaptureDevice?
-    private var consecutiveLowEdges: Int = 0
-    private let maxEdges: Int = 50
     private var isInAnotherCamera: Bool = false
     private var lastFrameProcessed: TimeInterval = 0
     private var photoOutput: AVCapturePhotoOutput!
@@ -45,11 +43,18 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         captureSession.sessionPreset = .hd1280x720
 
         let videoCaptureDevice: AVCaptureDevice
-        if let device = findCamera() {
-            videoCaptureDevice = device
+        if let ultraWideDevice = AVCaptureDevice.DiscoverySession(
+               deviceTypes: [.builtInUltraWideCamera],
+               mediaType: .video,
+               position: .back
+           ).devices.first
+        {
+            videoCaptureDevice = ultraWideDevice
+        }
+        else if let defaultWideDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
+            videoCaptureDevice = defaultWideDevice
         } else {
-            guard let defaultDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else { return }
-            videoCaptureDevice = defaultDevice
+            return
         }
 
         guard let videoInput = try? AVCaptureDeviceInput(device: videoCaptureDevice) else { return }
@@ -151,12 +156,6 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
                     guard let self = self else { return }
                     guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
                     self.detectDocument(in: pixelBuffer)
-                }
-            }
-
-            if consecutiveLowEdges >= maxEdges, !isInAnotherCamera {
-                if #available(iOS 13.0, *) {
-                    switchToAngleWideCamera()
                 }
             }
         }
@@ -394,26 +393,6 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         return AVCaptureDevice.default(for: .video)
     }
 
-    @available(iOS 13.0, *)
-    private func switchToAngleWideCamera() {
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            guard let self = self, let session = self.captureSession else { return }
-            session.stopRunning()
-            for input in session.inputs { session.removeInput(input) }
-
-            guard let camera = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInUltraWideCamera], mediaType: .video, position: .back).devices.first else { return }
-            do {
-                let input = try AVCaptureDeviceInput(device: camera)
-                if session.canAddInput(input) {
-                    session.addInput(input)
-                    self.videoCaptureDevice = camera
-                }
-            } catch { print("Error configuring camera: \(error.localizedDescription)") }
-            session.startRunning()
-            self.isInAnotherCamera = true
-        }
-    }
-
     private func checkFrameSharpness(_ sampleBuffer: CMSampleBuffer) {
         guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
@@ -438,12 +417,6 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
                 let luminance = (0.299 * r + 0.587 * g + 0.114 * b)
                 if luminance < 30 || luminance > 220 { edgeCount += 1 }
             }
-        }
-
-        if edgeCount == 0 {
-            consecutiveLowEdges += 1
-        } else {
-            consecutiveLowEdges = 0
         }
     }
 }
