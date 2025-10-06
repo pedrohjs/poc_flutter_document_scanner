@@ -4,18 +4,23 @@ import android.graphics.SurfaceTexture
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
 
 class MainActivity: FlutterActivity() {
-    private lateinit var channel: MethodChannel
+    private lateinit var commandChannel: MethodChannel
+    private lateinit var eventChannel: EventChannel
     private lateinit var surfaceTexture: SurfaceTexture
     private var documentScanner: DocumentScanner? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "document_scanner")
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
 
-        channel.setMethodCallHandler { call, result ->
+        commandChannel = MethodChannel(messenger, "document_scanner")
+        eventChannel = EventChannel(messenger, "document_scanner_events")
+
+        commandChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "startScan" -> {
                     val textureEntry = flutterEngine.renderer.createSurfaceTexture()
@@ -25,8 +30,9 @@ class MainActivity: FlutterActivity() {
 
                     documentScanner = DocumentScanner(
                         context = applicationContext,
-                        channel = channel,
-                        surfaceTexture = surfaceTexture
+                        channel = commandChannel,
+                        surfaceTexture = surfaceTexture,
+                        eventChannel = eventChannel
                     )
 
                     documentScanner?.startCamera()
@@ -35,9 +41,11 @@ class MainActivity: FlutterActivity() {
                 }
                 "manualCapture" -> {
                     documentScanner?.takePicture()
+                    result.success(null)
                 }
                 "toggleFlash" -> {
                     documentScanner?.toggleFlash()
+                    result.success(null)
                 }
 //                "stopCamera" -> {
 //                    documentScanner?.stopCamera()

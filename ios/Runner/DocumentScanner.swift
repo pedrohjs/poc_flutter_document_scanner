@@ -4,7 +4,7 @@ import CoreImage
 import AVFoundation
 import Vision
 
-class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate {
+class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate, FlutterStreamHandler {
     private var textureId: Int64 = 0
     private var isScanning: Bool = false
     private var isProcessingDocument = false
@@ -20,12 +20,17 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     private var stableObservationStartTime: TimeInterval?
     private let confirmationDelay: TimeInterval = 2.0 // O tempo de confirmação em segundos (2 segundos)
     private let stabilityThreshold: CGFloat = 0.01 // Movimento máximo permitido (1% da tela)
+    private var eventChannel: FlutterEventChannel
+    private var eventSink: FlutterEventSink?
 
     // MARK: - Initialization
     init(registry: FlutterTextureRegistry, messenger: FlutterBinaryMessenger) {
         self.registry = registry
         self.commandChannel = FlutterMethodChannel(name: "document_scanner", binaryMessenger: messenger)
+        self.eventChannel = FlutterEventChannel(name: "document_scanner_events", binaryMessenger: messenger)
         super.init()
+        
+        self.eventChannel.setStreamHandler(self)
     }
 
     func getTextureId() -> Int64 {
@@ -170,12 +175,20 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
 
     func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
         guard let imageData = photo.fileDataRepresentation() else {
+            self.eventSink?(FlutterError(code: "CAPTURE_ERROR", message: "Erro ao obter dados da imagem.", details: error?.localizedDescription))
             print("Error getting image data: \(error?.localizedDescription ?? "")")
             return
         }
-        
+            
+        guard let eventSink = self.eventSink else { return }
+
         // Send the captured image data to Flutter
-        commandChannel.invokeMethod("onManualImageCaptured", arguments: FlutterStandardTypedData(bytes: imageData))
+        let event: [String: Any] = [
+            "eventType": "manual_capture",
+            "data": FlutterStandardTypedData(bytes: imageData)
+        ]
+
+        eventSink(event)
     }
 
     // MARK: - Document Detection
@@ -252,46 +265,70 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     }
     
     private func sendRectangleVertices(_ observation: VNRectangleObservation?, pixelBuffer: CVPixelBuffer) {
-        guard let observation = observation else {
-            let vertices: [String: Any] = ["vertices": []]
-            commandChannel.invokeMethod("onDocumentRecognized", arguments: vertices)
-            return
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let eventSink = self.eventSink else { return }
+
+            // 1. Caso de Documento DETECTADO: Envia o mapa de vértices.
+            if let observation = observation {
+                let imageWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
+                let imageHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
+
+                // Função auxiliar para conversão e inversão do eixo Y
+                func convertAndFlipY(point: CGPoint, width: CGFloat, height: CGFloat) -> [String: Int] {
+                    let x = Int(point.x * width)
+                    let y = Int((1.0 - point.y) * height)
+                    return ["x": x, "y": y]
+                }
+
+                let topLeft = convertAndFlipY(point: observation.topLeft, width: imageWidth, height: imageHeight)
+                let topRight = convertAndFlipY(point: observation.topRight, width: imageWidth, height: imageHeight)
+                let bottomRight = convertAndFlipY(point: observation.bottomRight, width: imageWidth, height: imageHeight)
+                let bottomLeft = convertAndFlipY(point: observation.bottomLeft, width: imageWidth, height: imageHeight)
+
+                let vertices: [String: Any] = [
+                    "topLeft": topLeft,
+                    "topRight": topRight,
+                    "bottomRight": bottomRight,
+                    "bottomLeft": bottomLeft,
+                    "imageNativeWidth": Int(imageWidth),
+                    "imageNativeHeight": Int(imageHeight),
+                ]
+                
+                let event: [String: Any] = [
+                    "eventType": "vertices_update",
+                    "data": vertices
+                ]
+                
+                eventSink(event)
+            } else {
+                // 2. Caso de Documento NÃO DETECTADO: Envia o mapa vazio para limpar o overlay no Flutter.
+                let event: [String: Any] = [
+                    "eventType": "vertices_update",
+                    "data": [:]
+                ]
+                
+                eventSink(event)
+            }
         }
-
-        let imageWidth = CGFloat(CVPixelBufferGetWidth(pixelBuffer))
-        let imageHeight = CGFloat(CVPixelBufferGetHeight(pixelBuffer))
-
-        func convertAndFlipY(point: CGPoint, width: CGFloat, height: CGFloat) -> [String: Int] {
-            let x = Int(point.x * width)
-            let y = Int((1.0 - point.y) * height)
-            return ["x": x, "y": y]
-        }
-
-        let topLeft = convertAndFlipY(point: observation.topLeft, width: imageWidth, height: imageHeight)
-        let topRight = convertAndFlipY(point: observation.topRight, width: imageWidth, height: imageHeight)
-        let bottomRight = convertAndFlipY(point: observation.bottomRight, width: imageWidth, height: imageHeight)
-        let bottomLeft = convertAndFlipY(point: observation.bottomLeft, width: imageWidth, height: imageHeight)
-
-        let vertices: [String: Any] = [
-            "topLeft": topLeft,
-            "topRight": topRight,
-            "bottomRight": bottomRight,
-            "bottomLeft": bottomLeft,
-            "imageNativeWidth": Int(imageWidth),
-            "imageNativeHeight": Int(imageHeight),
-        ]
-
-        commandChannel.invokeMethod("onDocumentRecognized", arguments: vertices)
     }
 
     @available(iOS 15.0, *)
     private func processAndSendDocument(_ observation: VNRectangleObservation, pixelBuffer: CVPixelBuffer) {
         guard let croppedBuffer = createWarpedPixelBuffer(for: observation, from: pixelBuffer),
-              let image = pixelBufferToUIImage(pixelBuffer: croppedBuffer),
-              let imageData = image.jpegData(compressionQuality: 1.0) else { return }
+                  let image = pixelBufferToUIImage(pixelBuffer: croppedBuffer),
+                  let imageData = image.jpegData(compressionQuality: 1.0) else { return }
 
-        // Envia apenas a imagem recortada
-        commandChannel.invokeMethod("onDocumentImageCaptured", arguments: FlutterStandardTypedData(bytes: imageData))
+            guard let eventSink = self.eventSink else { return } // Verifica se alguém está escutando
+
+            // Envia o resultado final
+            let event: [String: Any] = [
+                "eventType": "document_captured",
+                "data": FlutterStandardTypedData(bytes: imageData)
+            ]
+            
+            eventSink(event)
+            
+            // self.pauseCamera()
     }
     
     // MARK: - Stability Check
@@ -418,5 +455,33 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
                 if luminance < 30 || luminance > 220 { edgeCount += 1 }
             }
         }
+    }
+}
+
+// MARK: - FlutterStreamHandler
+extension DocumentScanner {
+    
+    // 1. Chamado quando o Flutter chama 'receiveBroadcastStream()'
+    func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+        self.eventSink = events
+
+        print("Flutter assinou o Event Channel. EventSink configurado.")
+        
+        // Se você não for usar um Method Channel para iniciar, você pode iniciar o reconhecimento aqui:
+        // self.isScanning = true // Exemplo de inicialização
+        return nil
+    }
+
+    // 2. Chamado quando o Flutter cancela a escuta do 'Stream'
+    func onCancel(withArguments arguments: Any?) -> FlutterError? {
+        self.eventSink = nil
+        // ESTE É O PONTO MAIS IMPORTANTE: Limpeza de recursos!
+        // Pare o processamento de frames para economizar bateria.
+        // Se o reconhecimento estiver ativado, pare-o agora.
+        
+        // Se o reconhecimento for ativado pelo Event Channel, pare aqui:
+        // self.isScanning = false // Exemplo de limpeza
+        print("Flutter cancelou o Event Channel. EventSink zerado.")
+        return nil
     }
 }

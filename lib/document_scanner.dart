@@ -3,37 +3,49 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 class DocumentScanner {
-  final channel = const MethodChannel('document_scanner');
+  final commandChannel = const MethodChannel('document_scanner');
+  final eventChannel = const EventChannel('document_scanner_events');
 
-  Future<int?> getTextureId() async => await channel.invokeMethod('startScan');
+  Future<int?> getTextureId() async =>
+      await commandChannel.invokeMethod('startScan');
+  void manualCapture() => commandChannel.invokeMethod('manualCapture');
+  void toggleFlash(bool active) =>
+      commandChannel.invokeMethod('toggleFlash', active);
 
-  void manualCapture() => channel.invokeMethod('manualCapture');
+  late final Stream<dynamic> _rawEventBroadcastStream =
+      eventChannel.receiveBroadcastStream().asBroadcastStream();
 
-  void toggleFlash(bool active) => channel.invokeMethod('toggleFlash', active);
+  Stream<dynamic> get _rawEventStream => _rawEventBroadcastStream;
 
-  StreamController<Uint8List> documentStreamController =
-      StreamController<Uint8List>();
-  StreamController<Map<dynamic, dynamic>> verticesStreamController =
-      StreamController<Map<dynamic, dynamic>>();
+  Stream<Map<dynamic, dynamic>> getVerticesStream() {
+    return _rawEventStream
+        .where(
+          (event) => event is Map && event['eventType'] == 'vertices_update',
+        )
+        .map((event) => event['data'] as Map<dynamic, dynamic>);
+  }
 
-  Stream<Uint8List> getDocumentStream() => documentStreamController.stream;
+  Stream<Uint8List> getDocumentStream() {
+    return _rawEventStream
+        .where(
+          (event) =>
+              event is Map &&
+              (event['eventType'] == 'document_captured' ||
+                  event['eventType'] == 'manual_capture'),
+        )
+        .map((event) => event['data'] as Uint8List);
+  }
 
-  Stream<Map<dynamic, dynamic>> getVerticesStream() =>
-      verticesStreamController.stream;
-
-  void documentScannerHandler() {
-    channel.setMethodCallHandler((handler) async {
-      if (handler.method == "onDocumentRecognized") {
-        if (handler.arguments is Map<dynamic, dynamic>) {
-          verticesStreamController.add(handler.arguments);
-        }
-      }
-
-      if (handler.method == "onDocumentImageCaptured" ||
-          handler.method == "onManualImageCaptured") {
-        final Uint8List imageData = handler.arguments;
-        documentStreamController.add(imageData);
-      }
-    });
+  Stream<String> getErrorStream() {
+    return eventChannel
+        .receiveBroadcastStream()
+        .handleError((error) {
+          if (error is PlatformException) {
+            return error.message ?? 'Unknown platform error';
+          }
+          return error.toString();
+        })
+        .where((event) => false)
+        .cast<String>();
   }
 }

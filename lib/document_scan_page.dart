@@ -15,60 +15,81 @@ class DocumentScanPage extends StatefulWidget {
 
 class _DocumentScanPageState extends State<DocumentScanPage> {
   final _scanner = DocumentScanner();
-
-  Size _imageNativeSize = Size(1, 1);
+  
+  int? _textureId; 
+  Size _imageNativeSize = const Size(1, 1);
   bool _flashActive = false;
 
-  Future<void> _requestCameraPermission() async {
-    await Permission.camera.request();
-  }
-
-  Future<int?> getTextureId() async {
-    return await _scanner.getTextureId();
-  }
+  late final Future<void> _initializationFuture; 
 
   @override
   void initState() {
     super.initState();
-    _requestCameraPermission();
-    _scanner.documentScannerHandler();
+    _initializationFuture = _initializeCamera();
+  }
+
+  Future<void> _initializeCamera() async {
+    await Permission.camera.request();
+    final id = await _scanner.getTextureId();
+    
+    if (mounted) {
+      setState(() {
+        _textureId = id;
+      });
+    }
+  }
+
+  void _toggleFlash() {
+    setState(() {
+      _flashActive = !_flashActive;
+    });
+    _scanner.toggleFlash(_flashActive); 
+  }
+
+  @override
+  void dispose() {
+    // _scanner.stopCamera(); 
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
+    return Scaffold(
         appBar: AppBar(
           title: const Text('Document Scanner POC'),
           centerTitle: false,
           actions: [
             IconButton(
-              onPressed: () {
-                _flashActive = !_flashActive;
-                _scanner.toggleFlash(_flashActive);
-              },
-              icon: Icon(Icons.flash_on, color: Colors.black),
+              onPressed: _toggleFlash, 
+              icon: Icon(
+                _flashActive ? Icons.flash_on : Icons.flash_off, 
+                color: Colors.black,
+              ),
             ),
           ],
         ),
-        body: FutureBuilder<int?>(
-          future: getTextureId(),
+        body: FutureBuilder<void>(
+          future: _initializationFuture, 
           builder: (_, snapshot) {
-            if (snapshot.hasData) {
+            if (snapshot.connectionState != ConnectionState.done) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            if (_textureId != null) {
               return Stack(
                 children: [
-                  Texture(textureId: snapshot.data!),
-                  StreamBuilder<dynamic>(
+                  Texture(textureId: _textureId!),
+                  
+                  StreamBuilder<Map<dynamic, dynamic>>(
                     stream: _scanner.getVerticesStream(),
                     builder: (context, streamSnapshot) {
                       List<Offset> rectangleVertices = [];
 
                       if (streamSnapshot.hasData) {
                         final Map<dynamic, dynamic> verticesMap =
-                            streamSnapshot.data;
+                            streamSnapshot.data!;
 
-                        // Checa se a lista de vértices não está vazia
-                        if (verticesMap.containsKey('topLeft')) {
+                        if (verticesMap.isNotEmpty) {
                           if (verticesMap.containsKey('imageNativeWidth')) {
                             _imageNativeSize = Size(
                               verticesMap['imageNativeWidth'].toDouble(),
@@ -105,10 +126,8 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                           final double previewWidth = constraints.maxWidth;
                           final double previewHeight = constraints.maxHeight;
 
-                          final double scaleX =
-                              previewWidth / _imageNativeSize.width;
-                          final double scaleY =
-                              previewHeight / _imageNativeSize.height;
+                          final double scaleX = previewWidth / _imageNativeSize.width;
+                          final double scaleY = previewHeight / _imageNativeSize.height;
 
                           final List<Offset> scaledVertices =
                               rectangleVertices.map((v) {
@@ -123,6 +142,7 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                       );
                     },
                   ),
+
                   Positioned(
                     bottom: 10,
                     right: 20,
@@ -133,33 +153,25 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                         stream: _scanner.getDocumentStream(),
                         builder: (context, snapshot) {
                           if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                            debugPrint(
-                              'Stream de imagem sem dados ou com dados vazios.',
-                            );
                             return Container(color: Colors.white24);
                           }
 
                           try {
                             return GestureDetector(
-                              onTap:
-                                  () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) {
-                                        return DocumentViewPage(
-                                          imageData: snapshot.data!,
-                                        );
-                                      },
-                                    ),
-                                  ),
+                              onTap: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) {
+                                    return DocumentViewPage(
+                                      imageData: snapshot.data!,
+                                    );
+                                  },
+                                ),
+                              ),
                               child: Image.memory(snapshot.data!),
                             );
                           } catch (e) {
-                            debugPrint(
-                              'Erro ao carregar a imagem da memória: $e',
-                            );
-                            return Container(
-                              color: Colors.red,
-                            );
+                            debugPrint('Erro ao carregar a imagem da memória: $e');
+                            return Container(color: Colors.red);
                           }
                         },
                       ),
@@ -168,7 +180,7 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                 ],
               );
             } else {
-              return const CircularProgressIndicator();
+              return const Center(child: Text("Câmera indisponível ou permissão negada."));
             }
           },
         ),
@@ -186,11 +198,10 @@ class _DocumentScanPageState extends State<DocumentScanPage> {
                 shape: const CircleBorder(),
                 backgroundColor: Colors.white,
               ),
-              child: Icon(Icons.camera_alt, color: Colors.black),
+              child: const Icon(Icons.camera_alt, color: Colors.black),
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 }

@@ -18,6 +18,9 @@ import android.hardware.camera2.params.SessionConfiguration
 import android.util.Log
 import androidx.annotation.RequiresApi
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugin.common.EventChannel
+import io.flutter.plugin.common.EventChannel.StreamHandler
+import io.flutter.plugin.common.EventChannel.EventSink
 import org.opencv.android.OpenCVLoader
 import org.opencv.android.Utils
 import java.util.*
@@ -35,7 +38,8 @@ class DocumentScanner(
     private val context: Context,
     private val channel: MethodChannel,
     private val surfaceTexture: SurfaceTexture,
-) {
+    private val eventChannel: EventChannel
+) : StreamHandler {
     private var isCameraStopped = false
     private var isProcessingImage = false
     private var imageReader: ImageReader? = null
@@ -52,6 +56,7 @@ class DocumentScanner(
     private var confirmationStartTime: Long = 0
     private var confirmedCorners: MatOfPoint2f? = null
     private val confirmationDelayMS = 2000L
+    private var eventSink: EventSink? = null
 
     companion object {
         init {
@@ -62,6 +67,11 @@ class DocumentScanner(
             }
         }
     }
+
+    init {
+        eventChannel.setStreamHandler(this)
+    }
+
 
     @SuppressLint("MissingPermission")
     fun startCamera() {
@@ -103,6 +113,16 @@ class DocumentScanner(
         } catch (e: CameraAccessException) {
             errorWhenProcessingDocument(e, "startCamera 4")
         }
+    }
+
+    override fun onListen(arguments: Any?, events: EventSink?) {
+        this.eventSink = events
+        Log.d("DocumentScanner", "Flutter assinou o Event Channel. EventSink configurado.")
+    }
+
+    override fun onCancel(arguments: Any?) {
+        this.eventSink = null
+        Log.d("DocumentScanner", "Flutter cancelou o Event Channel. EventSink zerado.")
     }
 
     private val backgroundExecutor: Executor = Executor { command ->
@@ -170,7 +190,12 @@ class DocumentScanner(
 
                     // Envia a imagem para o Flutter
                     mainHandler.post {
-                        channel.invokeMethod("onManualImageCaptured", imageBytes)
+                        val manualCaptureEvent = mapOf(
+                            "eventType" to "manual_capture",
+                            "data" to imageBytes
+                        )
+                        eventSink?.success(manualCaptureEvent)
+
                         isProcessingImage = false
 
                         // Reinicia a pré-visualização após a captura manual
@@ -303,7 +328,7 @@ class DocumentScanner(
                                 confirmedCorners?.release()
                                 confirmedCorners = null
 
-                                verticesMap = mapOf("vertices" to emptyList<Map<String, Int>>())
+                                verticesMap = emptyMap<String, Any>()
                             }
 
                             // Libera as Matrizes de tons de cinza e de contorno
@@ -313,9 +338,18 @@ class DocumentScanner(
 
                             // ETAPA 4: Enviar os dados para o Flutter
                             mainHandler.post {
-                                channel.invokeMethod("onDocumentRecognized", verticesMap)
+                                val verticesEvent = mapOf(
+                                    "eventType" to "vertices_update",
+                                    "data" to verticesMap
+                                )
+                                eventSink?.success(verticesEvent)
+
                                 imageBytes?.let {
-                                    channel.invokeMethod("onDocumentImageCaptured", it)
+                                    val imageEvent = mapOf(
+                                        "eventType" to "document_captured",
+                                        "data" to it
+                                    )
+                                    eventSink?.success(imageEvent)
                                 }
                                 isProcessingImage = false
                             }
