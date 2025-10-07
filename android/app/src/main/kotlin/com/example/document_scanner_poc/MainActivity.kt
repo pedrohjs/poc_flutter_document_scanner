@@ -30,7 +30,6 @@ class MainActivity: FlutterActivity() {
 
                     documentScanner = DocumentScanner(
                         context = applicationContext,
-                        channel = commandChannel,
                         surfaceTexture = surfaceTexture,
                         eventChannel = eventChannel
                     )
@@ -47,11 +46,11 @@ class MainActivity: FlutterActivity() {
                     documentScanner?.toggleFlash()
                     result.success(null)
                 }
-//                "stopCamera" -> {
-//                    documentScanner?.stopCamera()
-//                    documentScanner = null
-//                    result.success(null)
-//                }
+                "stopCamera" -> {
+                    documentScanner?.stopCamera()
+                    documentScanner = null
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
