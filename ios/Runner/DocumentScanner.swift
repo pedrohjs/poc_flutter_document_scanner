@@ -11,15 +11,12 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
     private var pixelBuffer: CVPixelBuffer?
     private var registry: FlutterTextureRegistry
     private var captureSession: AVCaptureSession?
-    private var commandChannel: FlutterMethodChannel
     private var videoCaptureDevice: AVCaptureDevice?
-    private var isInAnotherCamera: Bool = false
     private var lastFrameProcessed: TimeInterval = 0
     private var photoOutput: AVCapturePhotoOutput!
     private var lastStableObservation: VNRectangleObservation?
     private var stableObservationStartTime: TimeInterval?
-    private let confirmationDelay: TimeInterval = 2.0 // O tempo de confirmação em segundos (2 segundos)
-    private let stabilityThreshold: CGFloat = 0.01 // Movimento máximo permitido (1% da tela)
+    private var commandChannel: FlutterMethodChannel
     private var eventChannel: FlutterEventChannel
     private var eventSink: FlutterEventSink?
 
@@ -94,7 +91,6 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         textureId = 0
         captureSession = nil
         videoCaptureDevice = nil
-        isInAnotherCamera = false
     }
 
     func pauseCamera() {
@@ -230,7 +226,7 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
                             
                             let elapsedTime = currentTimestamp - (self.stableObservationStartTime ?? currentTimestamp)
                             
-                            if elapsedTime >= self.confirmationDelay {
+                            if elapsedTime >= Constants.stabilityDelay {
                                 // 3. Estabilidade atingida! Captura a imagem.
                                 print("Estabilidade confirmada após \(elapsedTime) segundos. Capturando documento.")
                                 
@@ -240,7 +236,7 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
                                 self.processAndSendDocument(documentObservation, pixelBuffer: pixelBuffer)
                             } else {
                                 // Ainda estável, mas aguardando o tempo
-                                print("Documento estável, aguardando... Faltam \(self.confirmationDelay - elapsedTime)s")
+                                print("Documento estável, aguardando... Faltam \(Constants.stabilityDelay - elapsedTime)s")
                             }
                         } else {
                             // O documento se moveu ou é a primeira detecção, reseta o cronômetro.
@@ -340,7 +336,7 @@ class DocumentScanner: NSObject, FlutterTexture, AVCaptureVideoDataOutputSampleB
         
         func isPointSimilar(_ p1: CGPoint, _ p2: CGPoint) -> Bool {
             // Verifica se a mudança nas coordenadas normalizadas é menor que o threshold
-            return abs(p1.x - p2.x) < stabilityThreshold && abs(p1.y - p2.y) < stabilityThreshold
+            return abs(p1.x - p2.x) < Constants.stabilityThreshold && abs(p1.y - p2.y) < Constants.stabilityThreshold
         }
 
         let topLeftStable = isPointSimilar(newObservation.topLeft, lastObservation.topLeft)
